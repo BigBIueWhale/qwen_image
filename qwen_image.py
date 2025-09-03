@@ -12,7 +12,7 @@ def parse_args():
     parser.add_argument('--cpu_offload', action='store_true', help='Enable CPU offloading')
     parser.add_argument('--cpu_offload_blocks', type=int, default=None, help='Number of transformer blocks to offload to CPU')
     parser.add_argument('--no_pin_memory', action='store_true', help='Disable memory pinning')
-    parser.add_argument('--prompt', type=str, default='A coffee shop entrance features a chalkboard sign reading "Qwen Coffee 😊 $2 per cup," with a neon light beside it displaying "通义千问". Next to it hangs a poster showing a beautiful Chinese woman, and beneath the poster is written "π≈3.1415926-53589793-23846264-33832795-02384197".',
+    parser.add_argument('--prompt', type=str, default='A coffee shop entrance features a chalkboard sign reading "Qwen Coffee 😊 $2 per cup," with a neon light beside it displaying "通义千问". Next to it hangs a poster showing a beautiful Chinese woman, and beneath the poster is written "π≈3.1415926-53589793-23846264-33832795-02384197". Ultra HD, 4K, cinematic composition.',
                         help='Text prompt for image generation')
     parser.add_argument('--negative_prompt', type=str, default=' ',
                         help='Negative prompt for image generation')
@@ -26,8 +26,6 @@ def parse_args():
                         help='Random seed for generation')
     parser.add_argument('--output', type=str, default='example.png',
                         help='Output image path')
-    parser.add_argument('--language', type=str, default='en', choices=['en', 'zh'],
-                        help='Language for positive magic prompt')
     return parser.parse_args()
 
 args = parse_args()
@@ -57,10 +55,6 @@ pipe = DiffusionPipeline.from_pretrained(
 )
 pipe.enable_model_cpu_offload()
 
-positive_magic = {
-    "en": "Ultra HD, 4K, cinematic composition.",
-}
-
 # Generate with different aspect ratios
 aspect_ratios = {
     "1:1": (1328, 1328),
@@ -73,7 +67,7 @@ aspect_ratios = {
 width, height = aspect_ratios[args.aspect_ratio]
 
 image = pipe(
-    prompt=args.prompt + positive_magic[args.language],
+    prompt=args.prompt,
     negative_prompt=args.negative_prompt,
     width=width,
     height=height,
