@@ -7,13 +7,21 @@ from transformers.modeling_utils import no_init_weights
 from dfloat11 import DFloat11Model
 import argparse
 
+# --- added imports for looping + file management ---
+import os
+import re
+from pathlib import Path
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description='Generate images using Qwen-Image model')
+    parser = argparse.ArgumentParser(description='Generate images using Qwen-Image model (loops until CTRL+C)')
     parser.add_argument('--cpu_offload', action='store_true', help='Enable CPU offloading')
     parser.add_argument('--cpu_offload_blocks', type=int, default=None, help='Number of transformer blocks to offload to CPU')
     parser.add_argument('--no_pin_memory', action='store_true', help='Disable memory pinning')
-    parser.add_argument('--prompt', type=str, default='A coffee shop entrance features a chalkboard sign reading "Qwen Coffee 😊 $2 per cup," with a neon light beside it displaying "通义千问". Next to it hangs a poster showing a beautiful Chinese woman, and beneath the poster is written "π≈3.1415926-53589793-23846264-33832795-02384197". Ultra HD, 4K, cinematic composition.',
-                        help='Text prompt for image generation')
+
+    # prompt is now REQUIRED (positional)
+    parser.add_argument('prompt', type=str, help='Text prompt for image generation')
+
     parser.add_argument('--negative_prompt', type=str, default=' ',
                         help='Negative prompt for image generation')
     parser.add_argument('--aspect_ratio', type=str, default='16:9', choices=['1:1', '16:9', '9:16', '4:3', '3:4'],
@@ -23,14 +31,33 @@ def parse_args():
     parser.add_argument('--true_cfg_scale', type=float, default=4.0,
                         help='Classifier free guidance scale')
     parser.add_argument('--seed', type=int, default=42,
-                        help='Random seed for generation')
-    parser.add_argument('--output', type=str, default='example.png',
-                        help='Output image path')
+                        help='Base random seed for generation (each image increments by +1)')
     return parser.parse_args()
+
 
 args = parse_args()
 
 model_name = "Qwen/Qwen-Image"
+
+# --- helpers for sequential filenames in ./output ---
+OUTPUT_DIR = Path.cwd() / "output"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+FNAME_RE = re.compile(r"^(\d{6})\.png$")
+
+
+def _next_index() -> int:
+    max_idx = 0
+    for name in os.listdir(OUTPUT_DIR):
+        m = FNAME_RE.match(name)
+        if m:
+            try:
+                idx = int(m.group(1))
+                if idx > max_idx:
+                    max_idx = idx
+            except ValueError:
+                pass
+    return max_idx + 1 if max_idx >= 1 else 1
+
 
 with no_init_weights():
     transformer = QwenImageTransformer2DModel.from_config(
@@ -66,17 +93,55 @@ aspect_ratios = {
 
 width, height = aspect_ratios[args.aspect_ratio]
 
-image = pipe(
-    prompt=args.prompt,
-    negative_prompt=args.negative_prompt,
-    width=width,
-    height=height,
-    num_inference_steps=args.num_inference_steps,
-    true_cfg_scale=args.true_cfg_scale,
-    generator=torch.Generator(device="cuda").manual_seed(args.seed)
-).images[0]
+# --- continuous generation loop, graceful CTRL+C ---
+idx = _next_index()
+images_made = 0
+gen_device = "cuda" if torch.cuda.is_available() else "cpu"
 
-image.save(args.output)
+print(f"[Run] Output directory: {OUTPUT_DIR}")
+print(f"[Run] Starting filename index: {idx:06d}")
+print("[Run] Press CTRL+C to stop.")
 
-max_memory = torch.cuda.max_memory_allocated()
-print(f"Max memory: {max_memory / (1000 ** 3):.2f} GB")
+try:
+    while True:
+        current_seed = args.seed + images_made
+        generator = torch.Generator(device=gen_device).manual_seed(current_seed)
+
+        image = pipe(
+            prompt=args.prompt,
+            negative_prompt=args.negative_prompt,
+            width=width,
+            height=height,
+            num_inference_steps=args.num_inference_steps,
+            true_cfg_scale=args.true_cfg_scale,
+            generator=generator
+        ).images[0]
+
+        fname = f"{idx:06d}.png"
+        fpath = OUTPUT_DIR / fname
+        image.save(fpath)
+
+        if torch.cuda.is_available():
+            max_memory = torch.cuda.max_memory_allocated()
+            print(f"[OK] Saved {fname} | seed={current_seed} | Max memory: {max_memory / (1000 ** 3):.2f} GB")
+        else:
+            print(f"[OK] Saved {fname} | seed={current_seed}")
+
+        idx += 1
+        images_made += 1
+
+except KeyboardInterrupt:
+    print("\n[Stop] CTRL+C detected. Cleaning up...")
+
+finally:
+    try:
+        del pipe
+        del transformer
+    except Exception:
+        pass
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
+    print(f"[Done] Generated {images_made} image(s).")
