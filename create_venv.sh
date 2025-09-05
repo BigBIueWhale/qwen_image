@@ -73,10 +73,18 @@ pip install \
   "pillow==11.3.0" \
   "cupy-cuda13x==13.6.0"
 
+# NOTE: '-U' below means 'upgrade to latest allowed', keeping your original intent for dfloat11.
 pip install -U dfloat11[cuda13]
 
 # Diffusers latest from GitHub
 pip install "git+https://github.com/huggingface/diffusers"
+
+# PEFT is required by Diffusers' LoRA APIs (e.g., pipe.load_lora_weights)
+# We pin to the specific version you referenced for reproducibility.
+# 'pip install peft==0.17.1' installs that exact version from PyPI.
+# (Contrast: 'pip install -U peft' would upgrade to the newest available version.)
+log "Installing PEFT (LoRA backend) from PyPI..."
+pip install "peft==0.17.1"
 
 # ---------------- validation ----------------
 log "Validating PyTorch CUDA availability..."
@@ -94,6 +102,13 @@ log "Validating Diffusers import..."
 python - <<'PY'
 from diffusers import DiffusionPipeline
 print("✔ Diffusers import OK:", DiffusionPipeline)
+PY
+
+# Sanity check for PEFT presence (required for LoRA)
+log "Validating PEFT import..."
+python - <<'PY'
+import peft
+print("✔ PEFT import OK:", peft.__version__)
 PY
 
 # ---------------- summary ----------------

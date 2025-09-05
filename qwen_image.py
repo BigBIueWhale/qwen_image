@@ -6,6 +6,7 @@ import torch
 from transformers.modeling_utils import no_init_weights
 from dfloat11 import DFloat11Model
 import argparse
+from typing import Tuple
 
 # --- added imports for looping + file management ---
 import os
@@ -32,6 +33,20 @@ def parse_args():
                         help='Classifier free guidance scale')
     parser.add_argument('--seed', type=int, default=42,
                         help='Base random seed for generation (each image increments by +1)')
+
+    # --- dedicated MCNL / NSFW LoRA switches (opinionated defaults) ---
+    # Download from https://civitai.com/models/1851673/mcnl-multi-concept-nsfw-lora-qwen-image (need to login)
+    # And place the LoRA in "models/loras/qwen_MCNL_v1.0.safetensors"
+    parser.add_argument('--nsfw', '--mcnl', dest='nsfw', action='store_true',
+                        help='Enable MCNL (Multi-Concept NSFW) LoRA for Qwen-Image')
+    parser.add_argument('--mcnl-path', type=str,
+                        default=str(Path.cwd() / "models" / "loras" / "qwen_MCNL_v1.0.safetensors"),
+                        help='Path to MCNL LoRA .safetensors (default: ./models/loras/qwen_MCNL_v1.0.safetensors)')
+    parser.add_argument('--mcnl-scale', type=float, default=0.8,
+                        help='Strength of MCNL LoRA (default: 0.8)')
+    parser.add_argument('--fuse_lora', action='store_true',
+                        help='Permanently fuse LoRA after loading (slight speedup; fixed scale during run)')
+
     return parser.parse_args()
 
 
@@ -59,6 +74,32 @@ def _next_index() -> int:
     return max_idx + 1 if max_idx >= 1 else 1
 
 
+# --- MCNL/NSFW LoRA helper (keeps structure; called before CPU offload) ---
+def _maybe_enable_mcnl(pipe: DiffusionPipeline, lora_path: str, scale: float, fuse: bool) -> Tuple[bool, str]:
+    p = Path(lora_path)
+    if not p.is_file():
+        print(
+            "[LoRA] MCNL requested but file not found:\n"
+            f"       {p}\n"
+            "       Place the LoRA at this path (recommended) or pass --mcnl-path.\n"
+            "       (Expected filename from community listing: qwen_MCNL_v1.0.safetensors)"
+        )
+        return False, ""
+    try:
+        adapter_name = "mcnl"
+        pipe.load_lora_weights(str(p), adapter_name=adapter_name)
+        pipe.set_adapters([adapter_name], adapter_weights=[float(scale)])
+        if fuse:
+            pipe.fuse_lora()
+            print(f"[LoRA] Loaded & fused MCNL @ scale={scale}")
+        else:
+            print(f"[LoRA] Loaded MCNL @ scale={scale}")
+        return True, adapter_name
+    except Exception as e:
+        print(f"[LoRA] Failed to load MCNL from {p}: {e}")
+        return False, ""
+
+
 with no_init_weights():
     transformer = QwenImageTransformer2DModel.from_config(
         QwenImageTransformer2DModel.load_config(
@@ -80,6 +121,11 @@ pipe = DiffusionPipeline.from_pretrained(
     transformer=transformer,
     torch_dtype=torch.bfloat16,
 )
+
+# --- Attach MCNL BEFORE enabling CPU offload ---
+if args.nsfw:
+    _maybe_enable_mcnl(pipe, args.mcnl_path, args.mcnl_scale, args.fuse_lora)
+
 pipe.enable_model_cpu_offload()
 
 # Generate with different aspect ratios
