@@ -13,17 +13,17 @@ ollama pull qwen2.5vl:32b-q4_K_M
 - New chat in OpenWebUI and attach the created [./output_image.png](./output_image.png), and use the following prompt:
 
 ```txt
-Detect all clickable UI elements in the image (buttons, links, icons, inputs, checkboxes, radios, toggles, tabs, dropdowns, menus).
-Output JSON only: a list of objects, each with:
-  - "label": short text or role for the element
-  - "bbox_2d": [x1, y1, x2, y2]  // absolute pixel coords on the resized image
-
-Return:
+Describe bounding boxes around every clickable UI element in the image.
+Output JSON only:
 [
   { "label": "...", "bbox_2d": [x1, y1, x2, y2] },
   ...
 ]
 ```
+
+- Take the resulting json and place it in [./result.json](./result.json)
+
+- Run `python3 draw_boxes.py`. The script will take [./result.json](./result.json) and apply them to [./output_image.png](./output_image.png) to create a new image: [bounding_boxes.png](./bounding_boxes.png).
 
 
 ## Metaparameters for OpenWebUI
