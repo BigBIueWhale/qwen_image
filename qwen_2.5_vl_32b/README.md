@@ -6,6 +6,26 @@ Run on `Ollama 0.11.7`
 ollama pull qwen2.5vl:32b-q4_K_M
 ```
 
+## Build Prompt
+
+- Image to attach: Place image at [./input_image.png](./input_image.png), and run `python3 image_normalize.py`.
+
+- New chat in OpenWebUI and attach the created [./output_image.png](./output_image.png), and use the following prompt:
+
+```txt
+Detect all clickable UI elements in the image (buttons, links, icons, inputs, checkboxes, radios, toggles, tabs, dropdowns, menus).
+Output JSON only: a list of objects, each with:
+  - "label": short text or role for the element
+  - "bbox_2d": [x1, y1, x2, y2]  // absolute pixel coords on the resized image
+
+Return:
+[
+  { "label": "...", "bbox_2d": [x1, y1, x2, y2] },
+  ...
+]
+```
+
+
 ## Metaparameters for OpenWebUI
 
 here’s a set of **evidence-based presets for `qwen2.5vl:32b` on Ollama**, pulled from Unsloth write-ups, official Qwen guidance, Reddit field reports, and a few YouTube demos.
