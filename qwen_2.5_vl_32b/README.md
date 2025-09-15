@@ -13,7 +13,7 @@ ollama pull qwen2.5vl:32b-q4_K_M
 - New chat in OpenWebUI and attach the created [./output_image.png](./output_image.png), and use the following prompt:
 
 ```txt
-Describe bounding boxes around every clickable UI element in the image.
+Describe bounding boxes around every suggested video thumbnail
 Output JSON only:
 [
   { "label": "...", "bbox_2d": [x1, y1, x2, y2] },
