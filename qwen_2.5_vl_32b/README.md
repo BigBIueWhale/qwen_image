@@ -6,6 +6,9 @@ Run on `Ollama 0.11.7`
 ollama pull qwen2.5vl:32b-q4_K_M
 ```
 
+> Note: It occurs to me that https://github.com/zai-org/GLM-V is **much better** and more accurate at creating bounding boxes.
+> In other words- `qwen2.5vl:32b` is actually unusable, relatively.
+
 ## Build Prompt
 
 - Image to attach: Place image at [./input_image.png](./input_image.png), and run `python3 image_normalize.py`.
@@ -13,7 +16,7 @@ ollama pull qwen2.5vl:32b-q4_K_M
 - New chat in OpenWebUI and attach the created [./output_image.png](./output_image.png), and use the following prompt:
 
 ```txt
-Describe bounding boxes around every suggested video thumbnail
+Describe bounding boxes around every shwarma wheel
 Output JSON only:
 [
   { "label": "...", "bbox_2d": [x1, y1, x2, y2] },

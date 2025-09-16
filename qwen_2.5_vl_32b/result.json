@@ -1,3 +1,4 @@
 [
-  { "label": "suggested video thumbnail", "bbox_2d": [836, 712, 995, 756] }
+  { "label": "shawarma wheel", "bbox_2d": [255, 605, 307, 773] },
+  { "label": "shawarma wheel", "bbox_2d": [340, 605, 392, 775] }
 ]
