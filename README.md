@@ -17,7 +17,7 @@ Qwen Image setup for my RTX 5090 with 32GB of VRAM, with `DFloat11` lossless qua
 4. Run `python3 qwen_image.py "You can shine under my umbrella"`\
 Then CTRL+C to stop when it has generated enough images into [./output/](./output/)
 
-5. Run `python3 qwen_image_edit.py "./output/000001.png"` "Make the umbrella yellow"\
+5. Run `python3 qwen_image_edit.py "./output/000001.png" "Make the umbrella yellow"`\
 Replace `"./output/000001.png"` with the name path you want to edit.\
 Then CTRL+C to stop when it has generated enough edited images into [./output_edit/](./output_edit/)
 
