@@ -11,28 +11,28 @@
 #       --image https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png
 #
 #   python qwen_image_edit.py "Turn the sky pink" --cpu_offload --cpu_offload_blocks 30 --no_pin_memory \
-#       --image ./my_photo.jpg
+#       --image ./my_photo.jpg --image ./another.jpg
 
 import argparse
 import os
 import re
 from pathlib import Path
-from typing import Tuple
+from typing import List
 
 import torch
 from diffusers.utils import load_image
-from diffusers import QwenImageTransformer2DModel, QwenImageEditPipeline
-from transformers.modeling_utils import no_init_weights
+from diffusers import QwenImageEditPlusPipeline
 from dfloat11 import DFloat11Model
 
 
 # ------------------------
 # Arg parsing (prompt is positional like qwen_image.py)
+#   - Images are provided via repeatable --image flags for multi-image editing
 # ------------------------
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Edit images with Qwen-Image-Edit (loops until CTRL+C)"
+        description="Edit images with Qwen-Image-Edit-2509 (loops until CTRL+C)"
     )
     # Offload & memory controls
     parser.add_argument("--cpu_offload", action="store_true", help="Enable CPU offloading")
@@ -46,16 +46,15 @@ def parse_args():
 
     # Editing controls
     parser.add_argument(
-        "image",
-        type=str,
-        nargs="?",
-        default="https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png",
-        help="Path or URL of the input image",
-    )
-    parser.add_argument(
         "prompt",
         type=str,
         help="Text prompt describing the edit (e.g., 'Add a hat to the cat.')",
+    )
+    parser.add_argument(
+        "--image",
+        dest="images",
+        action="append",
+        help="Path or URL of an input image (repeat this flag for multiple images)",
     )
     parser.add_argument(
         "--negative_prompt",
@@ -82,38 +81,18 @@ def parse_args():
         help="Base random seed (each image increments by +1)",
     )
 
-    # --- dedicated MCNL / NSFW LoRA switches (opinionated defaults) ---
-    parser.add_argument(
-        "--nsfw", "--mcnl", dest="nsfw", action="store_true",
-        help="Enable MCNL (Multi-Concept NSFW) LoRA for Qwen-Image-Edit"
-    )
-    parser.add_argument(
-        "--mcnl-path",
-        type=str,
-        default=str(Path.cwd() / "models" / "loras" / "qwen_MCNL_v1.0.safetensors"),
-        help="Path to MCNL LoRA .safetensors (default: ./models/loras/qwen_MCNL_v1.0.safetensors)",
-    )
-    parser.add_argument(
-        "--mcnl-scale",
-        type=float,
-        default=0.8,
-        help="Strength of MCNL LoRA (default: 0.8)",
-    )
-    parser.add_argument(
-        "--fuse_lora",
-        action="store_true",
-        help="Permanently fuse LoRA after loading (slight speedup; fixed scale during run)",
-    )
-
     return parser.parse_args()
 
 
 args = parse_args()
 
-MODEL_ID = "Qwen/Qwen-Image-Edit"
+MODEL_ID = "Qwen/Qwen-Image-Edit-2509"
+DFLOAT11_ID = "DFloat11/Qwen-Image-Edit-2509-DF11"
+
 OUTPUT_DIR = Path.cwd() / "output_edit"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 FNAME_RE = re.compile(r"^(\d{6})\.png$")
+DEFAULT_IMAGE = "https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/diffusers/cat.png"
 
 
 # ------------------------
@@ -135,68 +114,31 @@ def _next_index() -> int:
 
 
 # ------------------------
-# MCNL/NSFW LoRA helper
-# ------------------------
-def _maybe_enable_mcnl(pipe: QwenImageEditPipeline, lora_path: str, scale: float, fuse: bool) -> Tuple[bool, str]:
-    p = Path(lora_path)
-    if not p.is_file():
-        print(
-            "[LoRA] MCNL requested but file not found:\n"
-            f"       {p}\n"
-            "       Place the LoRA at this path (recommended) or pass --mcnl-path.\n"
-            "       (Expected filename from community listing: qwen_MCNL_v1.0.safetensors)"
-        )
-        return False, ""
-    try:
-        adapter_name = "mcnl"
-        pipe.load_lora_weights(str(p), adapter_name=adapter_name)
-        pipe.set_adapters([adapter_name], adapter_weights=[float(scale)])
-        if fuse:
-            pipe.fuse_lora()
-            print(f"[LoRA] Loaded & fused MCNL @ scale={scale}")
-        else:
-            print(f"[LoRA] Loaded MCNL @ scale={scale}")
-        return True, adapter_name
-    except Exception as e:
-        print(f"[LoRA] Failed to load MCNL from {p}: {e}")
-        return False, ""
-
-
-# ------------------------
 # Load DFloat11-compressed transformer and pipeline
+#   - Uses QwenImageEditPlusPipeline (2509)
+#   - Loads DFloat11 weights into the pipeline's transformer
 # ------------------------
-with no_init_weights():
-    transformer = QwenImageTransformer2DModel.from_config(
-        QwenImageTransformer2DModel.load_config(
-            MODEL_ID,
-            subfolder="transformer",
-        ),
-    ).to(torch.bfloat16)
+
+pipe = QwenImageEditPlusPipeline.from_pretrained(
+    MODEL_ID,
+    torch_dtype=torch.bfloat16,
+)
 
 DFloat11Model.from_pretrained(
-    "DFloat11/Qwen-Image-Edit-DF11",
+    DFLOAT11_ID,
     device="cpu",
     cpu_offload=args.cpu_offload,
     cpu_offload_blocks=args.cpu_offload_blocks,
     pin_memory=not args.no_pin_memory,
-    bfloat16_model=transformer,
+    bfloat16_model=pipe.transformer,
 )
-
-pipe = QwenImageEditPipeline.from_pretrained(
-    MODEL_ID,
-    transformer=transformer,
-    torch_dtype=torch.bfloat16,
-)
-
-# Load LoRA (e.g., MCNL) BEFORE enabling CPU offload
-if args.nsfw:
-    _maybe_enable_mcnl(pipe, args.mcnl_path, args.mcnl_scale, args.fuse_lora)
 
 pipe.enable_model_cpu_offload()
 pipe.set_progress_bar_config(disable=None)
 
-# Pre-load the conditioning image once (URL or local path)
-source_image = load_image(args.image)
+# Pre-load conditioning image(s) once (URL or local path)
+img_urls_or_paths: List[str] = args.images if args.images else [DEFAULT_IMAGE]
+images = [load_image(x) for x in img_urls_or_paths]
 
 # ------------------------
 # Continuous editing loop (CTRL+C to stop)
@@ -208,6 +150,7 @@ gen_device = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[Run] Output directory: {OUTPUT_DIR}")
 print(f"[Run] Starting filename index: {idx:06d}")
 print(f"[Run] CUDA available: {torch.cuda.is_available()}")
+print(f"[Run] Batch size (#input images): {len(images)}")
 print("[Run] Press CTRL+C to stop.")
 
 try:
@@ -216,30 +159,36 @@ try:
         generator = torch.Generator(device=gen_device).manual_seed(current_seed)
 
         with torch.inference_mode():
+            # Qwen-Image-Edit-2509 supports multiple conditioning images:
+            # pass a list for `image=[...]`. Negative prompt is supported.
             result = pipe(
-                image=source_image,
+                image=images,
                 prompt=args.prompt,
                 negative_prompt=args.negative_prompt,
                 num_inference_steps=args.num_inference_steps,
                 true_cfg_scale=args.true_cfg_scale,
                 generator=generator,
+                # For multiple variants per image, you may set: num_images_per_prompt > 1
             )
-            out_img = result.images[0]
+            out_images = result.images
 
-        fname = f"{idx:06d}.png"
-        fpath = OUTPUT_DIR / fname
-        out_img.save(fpath)
+        # Save all outputs from this iteration sequentially
+        for out_img in out_images:
+            fname = f"{idx:06d}.png"
+            fpath = OUTPUT_DIR / fname
+            out_img.save(fpath)
+            idx += 1
+
+        saved = len(out_images)
+        images_made += 1
 
         if torch.cuda.is_available():
             max_mem = torch.cuda.max_memory_allocated()
             print(
-                f"[OK] Saved {fname} | seed={current_seed} | Max memory: {max_mem / (1000 ** 3):.2f} GB"
+                f"[OK] Saved {saved} file(s) | seed={current_seed} | Max memory: {max_mem / (1000 ** 3):.2f} GB"
             )
         else:
-            print(f"[OK] Saved {fname} | seed={current_seed}")
-
-        idx += 1
-        images_made += 1
+            print(f"[OK] Saved {saved} file(s) | seed={current_seed}")
 
 except KeyboardInterrupt:
     print("\n[Stop] CTRL+C detected. Cleaning up...")
@@ -247,7 +196,6 @@ except KeyboardInterrupt:
 finally:
     try:
         del pipe
-        del transformer
     except Exception:
         pass
     if torch.cuda.is_available():
